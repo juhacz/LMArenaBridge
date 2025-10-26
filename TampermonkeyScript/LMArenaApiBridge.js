@@ -2,7 +2,7 @@
 // @name         LMArena API Bridge
 // @namespace    http://tampermonkey.net/
 // @version      2.5
-// @description  Bridges LMArena to a local API server via WebSocket for streamlined automation.
+// @description  Łączy LMArena z lokalnym serwerem API przez WebSocket w celu automatyzacji.
 // @author       Lianues
 // @match        https://lmarena.ai/*
 // @match        https://*.lmarena.ai/*
@@ -14,18 +14,18 @@
 (function () {
     'use strict';
 
-    // --- 配置 ---
-    const SERVER_URL = "ws://localhost:5102/ws"; // 与 api_server.py 中的端口匹配
+    // --- KONFIGURACJA ---
+    const SERVER_URL = "ws://localhost:5102/ws"; // Powinno pasować do portu w api_server.py
     let socket;
-    let isCaptureModeActive = false; // ID捕获模式的开关
+    let isCaptureModeActive = false; // Flaga trybu przechwytywania ID
 
-    // --- 核心逻辑 ---
+    // --- GŁÓWNA LOGIKA ---
     function connect() {
-        console.log(`[API Bridge] 正在连接到本地服务器: ${SERVER_URL}...`);
+        console.log(`[API Bridge] Łączę z lokalnym serwerem: ${SERVER_URL}...`);
         socket = new WebSocket(SERVER_URL);
 
         socket.onopen = () => {
-            console.log("[API Bridge] ✅ 与本地服务器的 WebSocket 连接已建立。");
+            console.log("[API Bridge] ✅ Połączenie WebSocket z lokalnym serwerem nawiązane.");
             document.title = "✅ " + document.title;
         };
 
@@ -33,19 +33,19 @@
             try {
                 const message = JSON.parse(event.data);
 
-                // 检查是否是指令，而不是标准的聊天请求
+                // Jeśli to polecenie, obsłuż je zamiast standardowego żądania chat
                 if (message.command) {
-                    console.log(`[API Bridge] ⬇️ 收到指令: ${message.command}`);
+                    console.log(`[API Bridge] ⬇️ Otrzymano polecenie: ${message.command}`);
                     if (message.command === 'refresh' || message.command === 'reconnect') {
-                        console.log(`[API Bridge] 收到 '${message.command}' 指令，正在执行页面刷新...`);
+                        console.log(`[API Bridge] Otrzymano polecenie '${message.command}' — odświeżam stronę...`);
                         location.reload();
                     } else if (message.command === 'activate_id_capture') {
-                        console.log("[API Bridge] ✅ ID 捕获模式已激活。请在页面上触发一次 'Retry' 操作。");
+                        console.log("[API Bridge] ✅ Tryb przechwytywania ID aktywowany. Wykonaj na stronie jednorazowo akcję 'Retry'.");
                         isCaptureModeActive = true;
-                        // 可以选择性地给用户一个视觉提示
+                        // Opcjonalny wizualny wskaźnik dla użytkownika
                         document.title = "🎯 " + document.title;
                     } else if (message.command === 'send_page_source') {
-                       console.log("[API Bridge] 收到发送页面源码的指令，正在发送...");
+                       console.log("[API Bridge] Otrzymano polecenie wysłania źródła strony — wysyłam...");
                        sendPageSource();
                     }
                     return;
@@ -54,20 +54,20 @@
                 const { request_id, payload } = message;
 
                 if (!request_id || !payload) {
-                    console.error("[API Bridge] 收到来自服务器的无效消息:", message);
+                    console.error("[API Bridge] Otrzymano od serwera nieprawidłową wiadomość:", message);
                     return;
                 }
                 
-                console.log(`[API Bridge] ⬇️ 收到聊天请求 ${request_id.substring(0, 8)}。准备执行 fetch 操作。`);
+                console.log(`[API Bridge] ⬇️ Otrzymano żądanie czatu ${request_id.substring(0, 8)}. Przygotowuję fetch.`);
                 await executeFetchAndStreamBack(request_id, payload);
 
             } catch (error) {
-                console.error("[API Bridge] 处理服务器消息时出错:", error);
+                console.error("[API Bridge] Błąd podczas przetwarzania wiadomości z serwera:", error);
             }
         };
 
         socket.onclose = () => {
-            console.warn("[API Bridge] 🔌 与本地服务器的连接已断开。将在5秒后尝试重新连接...");
+            console.warn("[API Bridge] 🔌 Połączenie z lokalnym serwerem zostało zamknięte. Ponowne połączenie za 5 sekund...");
             if (document.title.startsWith("✅ ")) {
                 document.title = document.title.substring(2);
             }
@@ -75,49 +75,48 @@
         };
 
         socket.onerror = (error) => {
-            console.error("[API Bridge] ❌ WebSocket 发生错误:", error);
-            socket.close(); // 会触发 onclose 中的重连逻辑
+            console.error("[API Bridge] ❌ Błąd WebSocket:", error);
+            socket.close(); // wywoła logikę ponownego łączenia w onclose
         };
     }
 
     async function executeFetchAndStreamBack(requestId, payload) {
-        console.log(`[API Bridge] 当前操作域名: ${window.location.hostname}`);
+        console.log(`[API Bridge] Bieżąca domena: ${window.location.hostname}`);
         const { is_image_request, message_templates, target_model_id, session_id, message_id } = payload;
 
-        // --- 使用从后端配置传递的会话信息 ---
+        // --- Używamy session_id/message_id przekazanych z backendu ---
         if (!session_id || !message_id) {
-            const errorMsg = "从后端收到的会话信息 (session_id 或 message_id) 为空。请先运行 `id_updater.py` 脚本进行设置。";
+            const errorMsg = "Otrzymane z backendu session_id lub message_id są puste. Uruchom skrypt `id_updater.py` i skonfiguruj ID.";
             console.error(`[API Bridge] ${errorMsg}`);
             sendToServer(requestId, { error: errorMsg });
             sendToServer(requestId, "[DONE]");
             return;
         }
 
-        // URL 对于聊天和文生图是相同的
+        // Endpoint dla czatu i generowania obrazów
         const apiUrl = `/nextjs-api/stream/retry-evaluation-session-message/${session_id}/messages/${message_id}`;
         const httpMethod = 'PUT';
         
-        console.log(`[API Bridge] 使用 API 端点: ${apiUrl}`);
+        console.log(`[API Bridge] Używany endpoint API: ${apiUrl}`);
         
         const newMessages = [];
         let lastMsgIdInChain = null;
 
         if (!message_templates || message_templates.length === 0) {
-            const errorMsg = "从后端收到的消息列表为空。";
+            const errorMsg = "Lista wiadomości otrzymana z backendu jest pusta.";
             console.error(`[API Bridge] ${errorMsg}`);
             sendToServer(requestId, { error: errorMsg });
             sendToServer(requestId, "[DONE]");
             return;
         }
 
-        // 这个循环逻辑对于聊天和文生图是通用的，因为后端已经准备好了正确的 message_templates
+        // Budujemy łańcuch wiadomości (działa zarówno dla czatu jak i generowania obrazów)
         for (let i = 0; i < message_templates.length; i++) {
             const template = message_templates[i];
             const currentMsgId = crypto.randomUUID();
             const parentIds = lastMsgIdInChain ? [lastMsgIdInChain] : [];
             
-            // 如果是文生图请求，状态总是 'success'
-            // 否则，只有最后一条消息是 'pending'
+            // Dla zapytań obrazkowych status zawsze 'success', w przeciwnym razie ostatnia wiadomość 'pending'
             const status = is_image_request ? 'success' : ((i === message_templates.length - 1) ? 'pending' : 'success');
 
             newMessages.push({
@@ -143,24 +142,24 @@
             modelId: target_model_id,
         };
 
-        console.log("[API Bridge] 准备发送到 LMArena API 的最终载荷:", JSON.stringify(body, null, 2));
+        console.log("[API Bridge] Przygotowano ładunek do wysłania do LMArena API:", JSON.stringify(body, null, 2));
 
-        // 设置一个标志，让我们的 fetch 拦截器知道这个请求是脚本自己发起的
+        // Flaga informująca interceptor fetch, że to żądanie wysłane przez ten skrypt
         window.isApiBridgeRequest = true;
         try {
             const response = await fetch(apiUrl, {
                 method: httpMethod,
                 headers: {
-                    'Content-Type': 'text/plain;charset=UTF-8', // LMArena 使用 text/plain
+                    'Content-Type': 'text/plain;charset=UTF-8', // LMArena oczekuje text/plain
                     'Accept': '*/*',
                 },
                 body: JSON.stringify(body),
-                credentials: 'include' // 必须包含 cookie
+                credentials: 'include' // wymagane cookie
             });
 
             if (!response.ok || !response.body) {
                 const errorBody = await response.text();
-                throw new Error(`网络响应不正常。状态: ${response.status}. 内容: ${errorBody}`);
+                throw new Error(`Nieprawidłowa odpowiedź sieci. Status: ${response.status}. Treść: ${errorBody}`);
             }
 
             const reader = response.body.getReader();
@@ -169,22 +168,22 @@
             while (true) {
                 const { value, done } = await reader.read();
                 if (done) {
-                    console.log(`[API Bridge] ✅ 请求 ${requestId.substring(0, 8)} 的流已成功结束。`);
-                    // 仅在流成功结束后发送 [DONE]
+                    console.log(`[API Bridge] ✅ Strumień dla żądania ${requestId.substring(0, 8)} zakończony pomyślnie.`);
+                    // Tylko po poprawnym zakończeniu wysyłamy [DONE]
                     sendToServer(requestId, "[DONE]");
                     break;
                 }
                 const chunk = decoder.decode(value);
-                // 直接将原始数据块转发回后端
+                // Przekazujemy surowy kawałek dalej do backendu
                 sendToServer(requestId, chunk);
             }
 
         } catch (error) {
-            console.error(`[API Bridge] ❌ 在为请求 ${requestId.substring(0, 8)} 执行 fetch 时出错:`, error);
-            // 发生错误时，只发送错误信息，不再发送 [DONE]
+            console.error(`[API Bridge] ❌ Błąd podczas fetch dla żądania ${requestId.substring(0, 8)}:`, error);
+            // Przy błędzie wysyłamy tylko informację o błędzie (bez [DONE])
             sendToServer(requestId, { error: error.message });
         } finally {
-            // 请求结束后，无论成功与否，都重置标志
+            // Reset flagi niezależnie od rezultatu
             window.isApiBridgeRequest = false;
         }
     }
@@ -197,17 +196,17 @@
             };
             socket.send(JSON.stringify(message));
         } else {
-            console.error("[API Bridge] 无法发送数据，WebSocket 连接未打开。");
+            console.error("[API Bridge] Nie można wysłać danych — połączenie WebSocket nie jest otwarte.");
         }
     }
 
-    // --- 网络请求拦截 ---
+    // --- PRZERYWANIE ZAPYTAŃ (INTERCEPT) ---
     const originalFetch = window.fetch;
     window.fetch = function(...args) {
         const urlArg = args[0];
         let urlString = '';
 
-        // 确保我们总是处理字符串形式的 URL
+        // Normalizujemy różne typy argumentów URL
         if (urlArg instanceof Request) {
             urlString = urlArg.url;
         } else if (urlArg instanceof URL) {
@@ -216,68 +215,68 @@
             urlString = urlArg;
         }
 
-        // 仅在 URL 是有效字符串时才进行匹配
+        // Dopasowujemy ścieżkę zawierającą sessionId/messageId
         if (urlString) {
             const match = urlString.match(/\/nextjs-api\/stream\/retry-evaluation-session-message\/([a-f0-9-]+)\/messages\/([a-f0-9-]+)/);
 
-            // 仅在请求不是由API桥自身发起，且捕获模式已激活时，才更新ID
+            // Jeśli żądanie nie jest wysłane przez ten skrypt i tryb przechwytywania jest aktywny — przechwytujemy ID
             if (match && !window.isApiBridgeRequest && isCaptureModeActive) {
                 const sessionId = match[1];
                 const messageId = match[2];
-                console.log(`[API Bridge Interceptor] 🎯 在激活模式下捕获到ID！正在发送...`);
+                console.log(`[API Bridge Interceptor] 🎯 W trybie przechwytywania wykryto ID! Wysyłam...`);
 
-                // 关闭捕获模式，确保只发送一次
+                // Wyłączamy tryb przechwytywania, aby wykonać to tylko raz
                 isCaptureModeActive = false;
                 if (document.title.startsWith("🎯 ")) {
                     document.title = document.title.substring(2);
                 }
 
-                // 异步将捕获到的ID发送到本地的 id_updater.py 脚本
+                // Asynchroniczne wysłanie przechwyconych ID do lokalnego serwera id_updater.py
                 fetch('http://127.0.0.1:5103/update', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ sessionId, messageId })
                 })
                 .then(response => {
-                    if (!response.ok) throw new Error(`Server responded with status: ${response.status}`);
-                    console.log(`[API Bridge] ✅ ID 更新成功发送。捕获模式已自动关闭。`);
+                    if (!response.ok) throw new Error(`Serwer odpowiedział statusem: ${response.status}`);
+                    console.log(`[API Bridge] ✅ ID zostały wysłane pomyślnie. Tryb przechwytywania zamknięty.`);
                 })
                 .catch(err => {
-                    console.error('[API Bridge] 发送ID更新时出错:', err.message);
-                    // 即使发送失败，捕获模式也已关闭，不会重试。
+                    console.error('[API Bridge] Błąd podczas wysyłania aktualizacji ID:', err.message);
+                    // Nawet przy błędzie tryb przechwytywania pozostaje wyłączony — brak ponawiania
                 });
             }
         }
 
-        // 调用原始的 fetch 函数，确保页面功能不受影响
+        // Wywołujemy oryginalny fetch, aby nie zaburzać działania strony
         return originalFetch.apply(this, args);
     };
 
 
-    // --- 页面源码发送 ---
+    // --- Wysyłanie źródła strony ---
     async function sendPageSource() {
         try {
             const htmlContent = document.documentElement.outerHTML;
-            await fetch('http://localhost:5102/internal/update_available_models', { // 新的端点
+            await fetch('http://localhost:5102/internal/update_available_models', { // nowy endpoint
                 method: 'POST',
                 headers: {
                     'Content-Type': 'text/html; charset=utf-8'
                 },
                 body: htmlContent
             });
-             console.log("[API Bridge] 页面源码已成功发送。");
+            console.log("[API Bridge] Źródło strony zostało pomyślnie wysłane.");
         } catch (e) {
-            console.error("[API Bridge] 发送页面源码失败:", e);
+            console.error("[API Bridge] Błąd wysyłania źródła strony:", e);
         }
     }
 
-    // --- 启动连接 ---
+    // --- Start ---
     console.log("========================================");
-    console.log("  LMArena API Bridge v2.5 正在运行。");
-    console.log("  - 聊天功能已连接到 ws://localhost:5102");
-    console.log("  - ID 捕获器将发送到 http://localhost:5103");
+    console.log("  LMArena API Bridge v2.5 działa.");
+    console.log("  - Funkcja czatu połączona z ws://localhost:5102");
+    console.log("  - Przechwytywanie ID będzie wysyłane na http://localhost:5103");
     console.log("========================================");
     
-    connect(); // 建立 WebSocket 连接
+    connect(); // Nawiązanie połączenia WebSocket
 
 })();
